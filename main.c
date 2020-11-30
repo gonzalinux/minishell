@@ -27,6 +27,17 @@
 #include <sched.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <stdbool.h>
+int pidult=-100;
+bool vistoelultimo=false;
+void esperarzombies(){
+    int s;
+    int pid=wait(&s);
+    if(pid==pidult)
+        vistoelultimo=true;
+
+
+}
 
 extern int obtain_order();		/* See parser.y for description */
 
@@ -41,10 +52,21 @@ int main(void)
 	int ret;
 	int x;
 
+
 	setbuf(stdout, NULL);			/* Unbuffered */
 	setbuf(stdin, NULL);
     int vuelta=0;
-	while (1) {
+
+    signal(SIGCHLD,esperarzombies);
+    sigset_t set;
+    struct sigaction accion;
+    accion.sa_handler=SIG_IGN;
+    accion.sa_flags=0;
+
+    sigaction(SIGQUIT,&accion,NULL);
+    sigaction(SIGINT,&accion,NULL);
+
+    while (1) {
 	    vuelta++;
 		fprintf(stderr, "%s", "msh>");	/* Prompt */
 		ret = obtain_order(&argvv, filev, &bg);
@@ -89,39 +111,24 @@ int main(void)
 
 
             pid[i] = fork();
+            if(i==nmandatos-1)
+                pidult=pid[i];
             if(pid[i]==0||pid[i]==-1) {
                 for(x=0;x<nmandatos-1;x++){
-                    if(i==0) {
-                        if(x==0){
-                        close(pipes[x][0]);
+                    if(i==x) {
                         dup2(pipes[x][1], 1);
                     }
-                        else{
-                        close(pipes[x][0]);
+                    else
                         close(pipes[x][1]);
-                    }}
-                    else {
-                        if (i == nmandatos - 1) {
-                            if (x == nmandatos - 2) {
-                                dup2(pipes[x][0], 0);
-                                close(pipes[x][1]);
-                            } else {
-                                close(pipes[x][0]);
-                                close(pipes[x][0]);
-                            }
-                        }
-                        else
-                            if(i==x){
-                                dup2(pipes[x][0],0);
-                                close(pipes[x][1]);
+                    if(x==i-1)
+                        dup2(pipes[x][0],0);
+                    else
+                        close(pipes[x][0]);
 
-                            }else
-                                if(i==x+1){
-                                    dup2(pipes[x][1],1);
-                                    close(pipes[x][0]);
-                                }
-                    }
+
                 }
+
+
 
 
                 break;}
@@ -143,8 +150,23 @@ int main(void)
                 case 0:
 
                     if (bg) {
-                        pid2 = fork();}
+                        pid2 = fork();
+                        if (pid2 != 0) {
+                            printf("[%d]\n", pid2);
+                            char *string=(char*)malloc(7*sizeof(string)+sizeof(int));
+                            sprintf(string,"bgpid=%d",pid2);
+                            putenv(string);
 
+                        }
+                        else{
+                            struct sigaction accion2;
+                            accion.sa_handler=SIG_DFL;
+                            accion.sa_flags=0;
+
+                            sigaction(SIGQUIT,&accion2,&accion);
+                            sigaction(SIGINT,&accion2,&accion);
+                        }
+                    }
                     if (pid2 != 0) {
                         exit(0);
                     } else {
@@ -152,7 +174,10 @@ int main(void)
 
                         for(x=0;x<3&&i==nmandatos-1;x++){
                             if(filev[x]){
+                                if(x!=0)
                                 files[x]=open(filev[x],O_WRONLY | O_CREAT | O_TRUNC, 0600);
+                                else
+                                    files[x]=open(filev[x],O_RDONLY, 0600);
                                 if(files[x]==-1){
                                     fprintf(stderr,"Hubo un error al abrir el archivo '%s' , con el error: %d",filev[x],errno);
                                     exit(errno);}
@@ -181,18 +206,10 @@ int main(void)
 
             }
 
-        int s;
 
-		for(int j=0;j<nmandatos;j++) {
-            wait(&s);
-            if (WIFEXITED(s));
-          //      printf("ha retornado %d\n", s);
-        }
-
-
-
-
-
+            while(!vistoelultimo)
+                pause();
+            vistoelultimo=false;
 
 
 /*
