@@ -28,29 +28,121 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <sys/stat.h>
+#include <memory.h>
+
 int pidult=-100;
 bool vistoelultimo=false;
+char* mandatos[]={"cd","umask","time","read"};
+bool comprobarmandato(char ***argvv ,int i){
+
+    char **argv = argvv[i];
+    int argc;
+    int x;
+
+        for (argc = 0; argv[argc]; argc++) {
+            for (x = 0; x < 4; x++) {
+
+
+                if (strcmp(argv[argc], mandatos[x]) == 0) {
+                    return true;
+
+
+
+            }
+        }
+
+    }
+
+
+    return false;
+}
+
 void esperarzombies(){
     int s;
     int pid=wait(&s);
-    if(pid==pidult)
-        vistoelultimo=true;
+    if(pid==pidult) {
+        vistoelultimo = true;
+
+
+
+    }
+
 
 
 }
+void mandato(char * mandato[]){
+    char *buff = malloc(100);
+    char **otrobuff = NULL;
+    int termina;
+    char *directorio;
+    mode_t mask=umask(0);
+    umask(mask);
+    if(strcmp(mandato[0],"cd")==0){
+
+        if(mandato[1]) {
+
+            else{
+            directorio=mandato[1];
+            termina=chdir(mandato[1]);
+        }}
+        else{
+
+            directorio=getenv("HOME");
+            termina=chdir(getenv("HOME"));
+            }
+            if (termina==-1){
+                fprintf(stderr,"el directorio no es correcto: %s\n",directorio);}
+            else{
+            getcwd(buff,100);
+                printf("%s\n", buff);
+        }
+    }
+
+
+    else if(strcmp(mandato[0],"umask")==0){
+        if(mandato[1]){
+            mask=(int)strtol(mandato[1],otrobuff,8);
+
+            if(mask==0&&atoi(mandato[1])!=0&&mask<01700)
+                fprintf(stderr,"La mascara asignada no es posible: %s\n",mandato[1]);
+            else
+            printf("%o\n",umask(mask));
+        }
+        else
+            printf("%o\n",mask);
+
+
+    } else if(strcmp(mandato[0],"times")==0){
+
+
+
+    }
+   free(buff);
+}
+
+
 
 extern int obtain_order();		/* See parser.y for description */
 
 int main(void)
-{
+{	int x;
+
+    int fdstock[3];
+    for(x=0;x<3;x++){
+        fdstock[x]=dup(x);
+    }
+
 	char ***argvv = NULL;
 	int argvc;
 	char **argv = NULL;
-	int argc;
 	char *filev[3] = { NULL, NULL, NULL };
 	int bg;
 	int ret;
-	int x;
+
+    mode_t mascara=0666;
+    mode_t mask=0000;
+    umask(mask);
 
 
 	setbuf(stdout, NULL);			/* Unbuffered */
@@ -58,7 +150,6 @@ int main(void)
     int vuelta=0;
 
     signal(SIGCHLD,esperarzombies);
-    sigset_t set;
     struct sigaction accion;
     accion.sa_handler=SIG_IGN;
     accion.sa_flags=0;
@@ -82,7 +173,7 @@ int main(void)
  */
         int nmandatos=0;
 		for (argvc = 0; (argv = argvv[argvc]); argvc++) {
-			for (argc = 0; argv[argc]; argc++);
+
 				//printf("%s", argv[argc]);
 			//printf("\n");
 			nmandatos++;
@@ -107,13 +198,27 @@ int main(void)
 
         int i;
 
+        bool nohijo=false;
 		for( i=0;i<nmandatos;i++) {
+		    if(i==nmandatos-1) {
+		        nohijo=comprobarmandato(argvv,i);
 
 
-            pid[i] = fork();
+            }
+            if(!nohijo) {
+
+            pid[i] = fork();}
+            else {
+                nmandatos--;
+                pid[i]=0;
+            }
             if(i==nmandatos-1)
                 pidult=pid[i];
             if(pid[i]==0||pid[i]==-1) {
+
+
+
+
                 for(x=0;x<nmandatos-1;x++){
                     if(i==x) {
                         dup2(pipes[x][1], 1);
@@ -128,14 +233,11 @@ int main(void)
 
                 }
 
-
-
-
                 break;}
             }
 
 
-            if(i==nmandatos)
+            if(i==nmandatos&&!nohijo)
                 for( x=0;x<nmandatos-1;x++){
                     close(pipes[x][0]);
                     close(pipes[x][1]);
@@ -149,6 +251,8 @@ int main(void)
 
                 case 0:
 
+
+
                     if (bg) {
                         pid2 = fork();
                         if (pid2 != 0) {
@@ -157,59 +261,81 @@ int main(void)
                             sprintf(string,"bgpid=%d",pid2);
                             putenv(string);
 
-                        }
-                        else{
-                            struct sigaction accion2;
-                            accion.sa_handler=SIG_DFL;
-                            accion.sa_flags=0;
+                        }}
+                    else{if(!nohijo){
+                        struct sigaction accion2;
+                        accion.sa_handler=SIG_DFL;
+                        accion.sa_flags=0;
 
-                            sigaction(SIGQUIT,&accion2,&accion);
-                            sigaction(SIGINT,&accion2,&accion);
-                        }
-                    }
+                        sigaction(SIGQUIT,&accion2,&accion);
+                        sigaction(SIGINT,&accion2,&accion);
+                        }}
+
                     if (pid2 != 0) {
                         exit(0);
                     } else {
 
+                        bool hayfich=false;
 
-                        for(x=0;x<3&&i==nmandatos-1;x++){
-                            if(filev[x]){
-                                if(x!=0)
-                                files[x]=open(filev[x],O_WRONLY | O_CREAT | O_TRUNC, 0600);
-                                else
-                                    files[x]=open(filev[x],O_RDONLY, 0600);
-                                if(files[x]==-1){
-                                    fprintf(stderr,"Hubo un error al abrir el archivo '%s' , con el error: %d",filev[x],errno);
-                                    exit(errno);}
-                                else{
-                                    if(dup2(files[x],x)==-1) {
-                                        fprintf(stderr, "Hubo un error en el dup2");
-                                        exit(errno);
-                                    }
-                                    if(close(files[x])==-1){
-                                        fprintf(stderr, "Hubo un error en el close");
-                                        exit(errno);
+                        for(x=0;x<3;x++){
 
+
+                            if(filev[x]) {
+                                if (x == 0 && i == 0) {
+
+                                    files[x] = open(filev[x], O_RDONLY,mascara);
+                                    hayfich = true;
+                                } else if (x == 1 && (i == nmandatos - 1||nohijo)) {
+                                    files[x] = open(filev[x], O_WRONLY | O_TRUNC | O_CREAT,mascara);
+                                    hayfich = true;
+                                }
+                                if (hayfich) {
+                                    if (files[x] == -1) {
+                                        fprintf(stderr, "Hubo un error al abrir el archivo '%s' , con el error: %d\n",
+                                                filev[x], errno);
+                                        exit(errno);
+                                    } else {
+
+
+                                        if (dup2(files[x],x) == -1) {
+                                            fprintf(stderr, "Hubo un error en el dup2\n");
+                                            exit(errno);
+                                        }
+                                        if (close(files[x]) == -1) {
+                                            fprintf(stderr, "Hubo un error en el close\n");
+                                            exit(errno);
+
+                                        }
                                     }
+                                    hayfich = false;
                                 }
 
-
+                            }
                             }
                         }
 
-                        if(bg)
-                            sleep(3);
+                    if (comprobarmandato(argvv,i)){
+                            mandato(argvv[i]);
+                            if(!nohijo)
+                            exit(0);
+                            else{
+                                for(x=0;x<3;x++){
+                                    dup2(fdstock[x],x);
+                                }
+                            }
+
+
+                        }else
+
+                        if(!nohijo)
                         execvp(argvv[i][0], argvv[i]);
+
                         }
 
-
-
-            }
-
-
-            while(!vistoelultimo)
+            while(!vistoelultimo&&!nohijo)
                 pause();
             vistoelultimo=false;
+
 
 
 /*
