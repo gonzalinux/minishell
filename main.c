@@ -24,15 +24,18 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/wait.h>
-#include <sched.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <sys/stat.h>
 #include <memory.h>
 #include <sys/times.h>
+#include <glob.h>
+
 int pidult=-100;
 bool vistoelultimo=false;
+bool haybg=true;
+
 char* mandatos[]={"cd","umask","time","read","exit"};
 
 
@@ -44,9 +47,9 @@ int size(char* string){
 }
 
 
-bool comprobarmandato(char ***argvv ,int i){
+bool comprobarmandato(char **argv ){
 
-    char **argv = argvv[i];
+
     int argc;
     int x;
 
@@ -70,36 +73,40 @@ bool comprobarmandato(char ***argvv ,int i){
 
 void esperarzombies(){
     int s;
-    int pid=wait(&s);
-    if(pid==pidult) {
-        vistoelultimo = true;
+   int pid= wait(&s);
+
+
+      if(pid==pidult){
+          vistoelultimo=true;
+       char *varento=malloc(8*sizeof(char)+sizeof(int ));
+       sprintf(varento,"status=%i",s);
+       putenv(strdup(varento));
+       free(varento);
 
 
 
-    }
 
-
+   }
 
 }
-void mandato(char * mandato[]){
+void ejemandato(char * mandato[]){
     if(strcmp(mandato[0],"exit")==0){
         printf("El segundo argumento tiene un tamaño de %d\n",size(mandato[1]));
 
         exit(0);
     }
-
-    char *buff = malloc(100);
-
-    int termina;
-    char *directorio;
     mode_t mask=umask(0);
     umask(mask);
     if(strcmp(mandato[0],"cd")==0){
-
+        char *directorio;
+        int termina;
+        char *buff = malloc(100);
         if(mandato[1]) {
             if(mandato[2]){
                 fprintf(stderr,"Numero incorrecto de argumentos, se necesita 1");
-                free(buff);return;
+                free(buff);
+                putenv("status=1");
+                return;
             }
             else{
             directorio=mandato[1];
@@ -111,11 +118,18 @@ void mandato(char * mandato[]){
             termina=chdir(getenv("HOME"));
             }
             if (termina==-1){
-                fprintf(stderr,"el directorio no es correcto: %s\n",directorio);}
+                fprintf(stderr,"el directorio no es correcto: %s\n",directorio);
+
+            }
             else{
             getcwd(buff,100);
                 printf("%s\n", buff);
         }
+        char *varento=malloc(8*sizeof(char)+sizeof(int ));
+        sprintf(varento,"status=%i",termina);
+        putenv(strdup(varento));
+        free(varento);
+        free(buff);
     }
 
 
@@ -124,21 +138,29 @@ void mandato(char * mandato[]){
         if(mandato[1]){
             if(mandato[2]) {
                 fprintf(stderr, "Numero incorrecto de argumentos, se necesita 1\n");
-                free(buff);
+
                 free(otrobuff);
+                putenv("status=1");
                 return;
             }
             else{
             mask=(int)strtol(mandato[1],otrobuff,8);
 
-            if((mask==0&&atoi(mandato[1])!=0)||mask>01777||strcmp("",*otrobuff)!=0)
-                fprintf(stderr,"La mascara asignada no es posible: %s\n",mandato[1]);
-            else{
+            if((mask==0&&atoi(mandato[1])!=0)||mask>01777||strcmp("",*otrobuff)!=0) {
+                fprintf(stderr, "La mascara asignada no es posible: %s\n", mandato[1]);
+                putenv("status=1");
 
-            printf("%o\n",umask(mask));}}
+            }else{
+
+            printf("%o\n",umask(mask));
+                putenv("status=0");
+
+            }}
         }
         else
             printf("%o\n",mask);
+        putenv("status=0");
+
 
         free(otrobuff);
 
@@ -154,6 +176,8 @@ void mandato(char * mandato[]){
 
 
             printf("%d.%03du %d.%03ds %d.%03dr\n",(int)utime/1000,(int)utime%1000,(int)stime/1000,(int)stime%1000,(int)rtime/1000,(int)rtime%1000);
+            putenv("status=0");
+
             free(buff2);
         }else{
             int x;
@@ -171,18 +195,22 @@ void mandato(char * mandato[]){
             vex[npalabras]=NULL;
             pid_t pid=fork();
             if(pid==0){
+                if (comprobarmandato(vex)){
+                    ejemandato(vex);
+                    exit(0);
+                }
                 execvp(vex[0],vex);
                 exit(0);
             }
-            pidult=pid;
-            while(!vistoelultimo)
-                pause();
-            vistoelultimo=false;
+            int s;
+            waitpid(pid,&s,0);
             times(buff2);
             utime=utime-buff2->tms_cutime/tksec;
             stime=stime-buff2->tms_cstime/tksec;
             rtime=rtime-(buff2->tms_cstime + buff2->tms_cutime)/tksec;
             printf("%d.%03du %d.%03ds %d.%03dr\n",(int)utime,(int)utime%1000,(int)stime,(int)stime%1000,(int)rtime,(int)rtime%1000);
+
+
             free(buff2);
 
 
@@ -190,7 +218,92 @@ void mandato(char * mandato[]){
 
         }
     }
-   free(buff);
+    else if(strcmp(mandato[0],"read")==0){
+        if(!mandato[1]){
+            fprintf(stderr,"Uso: read Variable [Variables]");
+            putenv("status=1");
+        }
+        int nvar=0;
+        char* var;
+        char* linea=NULL;
+        size_t tamlinea=0;
+        getline(&linea,&tamlinea,stdin);
+
+
+
+        char ** valores=malloc(20*sizeof(valores));
+        char** puntvalores=valores;
+        int tamvalores=20;
+        int nvalores;
+
+        *valores=strtok(linea," ");
+
+        if(*valores==NULL){
+            if(size(linea)!=0){
+
+            nvalores=1;
+            *valores=linea;
+            //printf("%s\n",*puntvalores);
+            }
+            else
+                nvalores=0;
+
+        }
+        else {
+            nvalores = 1;
+        }
+        puntvalores=valores+1;
+        while((*puntvalores=strtok(NULL," "))!=NULL){
+
+                if(nvalores>=tamvalores-1){
+                    valores=realloc(valores,2*tamvalores*sizeof(valores));
+                    tamvalores*=2;
+                }
+                puntvalores=puntvalores+1;
+                nvalores++;
+
+            }
+        puntvalores--;
+            *puntvalores=strtok(*puntvalores,"\n");
+
+
+            puntvalores=valores;
+        for(nvar=1;(var=mandato[nvar]);nvar++){
+            if(*puntvalores==NULL){
+
+
+             break;
+        }
+
+            char * string=malloc((size(var)+1+size(*puntvalores)*sizeof(string)));
+            sprintf(string,"%s=%s",var,*puntvalores);
+
+            puntvalores++;
+            if(mandato[nvar+1]==NULL){
+                while (*puntvalores!=NULL){
+                    string=realloc(string,(size(string)+1+size(*puntvalores)*sizeof(string)));
+                    strcat(string," ");
+                    strcat(string,*puntvalores);
+                    puntvalores++;
+
+
+                }
+
+            }
+            putenv(strdup(string));
+            free(string);
+
+
+
+
+        }
+        free(valores);
+        free(linea);
+
+
+
+    }
+
 }
 
 
@@ -206,6 +319,7 @@ int main(void)
     for(x=0;x<3;x++){
         fdstock[x]=dup(x);
     }
+    setbuf(stdin,NULL);
 
 	char ***argvv = NULL;
 	int argvc;
@@ -217,23 +331,35 @@ int main(void)
     mode_t mascara=0666;
     mode_t mask=0000;
     umask(mask);
+    sigset_t set;
+    sigaddset(&set,SIGCHLD);
 
 
 	setbuf(stdout, NULL);			/* Unbuffered */
 	setbuf(stdin, NULL);
-    int vuelta=0;
 
-    signal(SIGCHLD,esperarzombies);
     struct sigaction accion;
     accion.sa_handler=SIG_IGN;
     accion.sa_flags=0;
 
     sigaction(SIGQUIT,&accion,NULL);
+    signal(SIGCHLD,esperarzombies);
     sigaction(SIGINT,&accion,NULL);
+    char *varento=malloc(8*sizeof(char)+sizeof(int ));
+    sprintf(varento,"mypid=%i",getpid());
+    putenv(strdup(varento));
+    free(varento);
+
+    putenv("prompt=msh>");
+    putenv("status=0");
+
 
     while (1) {
-	    vuelta++;
-		fprintf(stderr, "%s", "msh>");	/* Prompt */
+        signal(SIGCHLD,SIG_IGN);
+
+
+
+        fprintf(stderr, "%s", "msh>");	/* Prompt */
 		ret = obtain_order(&argvv, filev, &bg);
 		if (ret == 0) break;		/* EOF */
 		if (ret == -1) continue;	/* Syntax error */
@@ -244,24 +370,29 @@ int main(void)
  * LAS LINEAS QUE A CONTINUACION SE PRESENTAN SON SOLO
  * PARA DAR UNA IDEA DE COMO UTILIZAR LAS ESTRUCTURAS
  * argvv Y filev. ESTAS LINEAS DEBERAN SER ELIMINADAS.
- */
+ */      haybg=bg;
         int nmandatos=0;
         int npalabra;
         char *palabra;
         int tampalabra;
-        int nchar;
-        int puntero1=0;
-        int puntero2=0;
-        bool hay=false;
-        char charo;
-        char** partes=(char**)malloc(1);
-        char** punteropart;
-        int contapartes=0;
-        bool normal=false;
+        bool sesustituye=false;
+        bool aux=false;
 
 		for (argvc = 0; (argv = argvv[argvc]); argvc++) {
 		    for(npalabra=0;(palabra=argv[npalabra]);npalabra++){
+
 		        tampalabra=size(palabra);
+
+                int nchar;
+                int puntero1=0;
+                int puntero2=0;
+                bool hay=false;
+                char charo;
+                char** partes=(char**)malloc(1);
+                char** punteropart;
+                int contapartes=0;
+                bool normal=false;
+
 		        for(nchar=0;nchar<=tampalabra;nchar++){
 
 
@@ -288,6 +419,12 @@ int main(void)
 		            else
 		                charo=palabra[nchar];
 
+		            if(charo=='/') {
+                        aux=true;
+                        sesustituye = false;
+                    }
+		            if(charo=='?'&&!aux)
+		                sesustituye=true;
 
 		            if(charo=='~'){
 		                char *home=getenv("HOME");
@@ -361,9 +498,26 @@ int main(void)
                 }
 
 
+		       /* if(sesustituye){
+                glob_t globo;
+                glob(palabra,GLOB_NOCHECK,NULL,&globo );
+                char * manda[npalabra];
+                int k=0;
+                for(k=0;k<npalabra;k++){
+
+
+
+
+                }
+
+		    }*/
+
+
+
+
+
 		    }
-				//printf("%s", argv[argc]);
-			//printf("\n");
+
 			nmandatos++;
 		}
 		//if (filev[0]) printf("< %s\n", filev[0]);//IN
@@ -377,7 +531,6 @@ int main(void)
         int files[3];
 
 		pid_t pid[nmandatos];
-        pid_t pid2=0;
 
         int pipes[nmandatos-1][2];
         for( x=0;x<nmandatos-1;x++){
@@ -389,7 +542,7 @@ int main(void)
         bool nohijo=false;
 		for( i=0;i<nmandatos;i++) {
 		    if(i==nmandatos-1) {
-		        nohijo=comprobarmandato(argvv,i);
+		        nohijo=comprobarmandato(argvv[i])&&!bg;
 
 
             }
@@ -397,11 +550,12 @@ int main(void)
 
             pid[i] = fork();}
             else {
-                nmandatos--;
+
                 pid[i]=0;
             }
-            if(i==nmandatos-1)
-                pidult=pid[i];
+            if(i==nmandatos-1) {
+                pidult = pid[i];
+            }
             if(pid[i]==0||pid[i]==-1) {
 
 
@@ -418,11 +572,13 @@ int main(void)
                     else
                         close(pipes[x][0]);
 
-
                 }
 
                 break;}
             }
+		if(i==nmandatos&&nohijo){
+		    i--;
+		}
 
 
             if(i==nmandatos&&!nohijo)
@@ -440,18 +596,7 @@ int main(void)
                 case 0:
 
 
-
-                    if (bg) {
-                        pid2 = fork();
-                        if (pid2 != 0) {
-                            printf("[%d]\n", pid2);
-                            char *string=(char*)malloc(7*sizeof(string)+sizeof(int));
-                            sprintf(string,"bgpid=%d",pid2);
-                            putenv(string);
-                            free(string);
-
-                        }}
-                    else{if(!nohijo){
+                    if(!bg){if(!nohijo){
                         struct sigaction accion2;
                         accion.sa_handler=SIG_DFL;
                         accion.sa_flags=0;
@@ -460,9 +605,7 @@ int main(void)
                         sigaction(SIGINT,&accion2,&accion);
                         }}
 
-                    if (pid2 != 0) {
-                        exit(0);
-                    } else {
+
 
                         bool hayfich=false;
 
@@ -501,10 +644,10 @@ int main(void)
 
                             }
                             }
-                        }
 
-                    if (comprobarmandato(argvv,i)){
-                            mandato(argvv[i]);
+
+                    if (comprobarmandato(argvv[i])){
+                            ejemandato(argvv[i]);
                             if(!nohijo)
                             exit(0);
                             else{
@@ -522,10 +665,31 @@ int main(void)
                             exit(0);
                         }
                         }
+        if(haybg) {
+            printf("[%d]\n", pidult);
+            char *string = (char *) malloc(8 * sizeof(string) + sizeof(int));
+            sprintf(string, "bgpid=%d", pidult);
 
-            while(!vistoelultimo&&!nohijo)
+            putenv(strdup(string));
+
+            free(string);
+
+        }else {
+
+            sigprocmask(SIG_SETMASK,&set,NULL);
+
+            while(!vistoelultimo&&!nohijo&&!haybg){
+                sigprocmask(SIG_UNBLOCK,&set,NULL);
+                signal(SIGCHLD,esperarzombies);
                 pause();
-            vistoelultimo=false;
+                sigprocmask(SIG_SETMASK,&set,NULL);
+            }
+            sigprocmask(SIG_UNBLOCK,&set,NULL);
+        vistoelultimo=false;
+
+
+        }
+
 
 
 
