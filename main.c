@@ -72,21 +72,9 @@ bool comprobarmandato(char **argv ){
 }
 
 void esperarzombies(){
-    int s;
-   int pid= wait(&s);
+    siginfo_t info;
+   waitid(P_ALL,0,&info,WEXITED);
 
-
-      if(pid==pidult){
-          vistoelultimo=true;
-       char *varento=malloc(8*sizeof(char)+sizeof(int ));
-       sprintf(varento,"status=%i",s);
-       putenv(strdup(varento));
-       free(varento);
-
-
-
-
-   }
 
 }
 void ejemandato(char * mandato[]){
@@ -355,7 +343,6 @@ int main(void)
 
 
     while (1) {
-        signal(SIGCHLD,SIG_IGN);
 
 
 
@@ -676,15 +663,22 @@ int main(void)
 
         }else {
 
-            sigprocmask(SIG_SETMASK,&set,NULL);
 
-            while(!vistoelultimo&&!nohijo&&!haybg){
-                sigprocmask(SIG_UNBLOCK,&set,NULL);
-                signal(SIGCHLD,esperarzombies);
+
+            /*while(!vistoelultimo&&!nohijo&&!haybg) {
+
+
                 pause();
-                sigprocmask(SIG_SETMASK,&set,NULL);
+            }*/
+
+            if(!nohijo) {
+                siginfo_t info;
+                waitid(P_PID,pidult, &info,WEXITED | WNOWAIT);
+                char *varento=malloc(8*sizeof(char)+sizeof(int ));
+                sprintf(varento,"status=%i",info.si_status);
+                putenv(strdup(varento));
+                free(varento);
             }
-            sigprocmask(SIG_UNBLOCK,&set,NULL);
         vistoelultimo=false;
 
 
